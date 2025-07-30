@@ -1,0 +1,159 @@
+//@version=5
+indicator("London/NY Sessions & Opening Range", overlay = true, max_lines_count = 500, max_boxes_count = 500, max_labels_count = 500)
+
+// === INPUTS ===
+// Timezone Offset
+utcOffset = input.int(0, "UTC Offset (e.g. +3 = 3)", group = "Global Settings")
+
+// Session A (London)
+showLondon = input.bool(true, "Show London", group = "Sessions - London")
+londonStartHour = input.int(7, "Start Hour", minval=0, maxval=23, group = "Sessions - London")
+londonStartMin = input.int(0, "Start Minute", minval=0, maxval=59, group = "Sessions - London")
+londonEndHour = input.int(10, "End Hour", minval=0, maxval=23, group = "Sessions - London")
+londonEndMin = input.int(0, "End Minute", minval=0, maxval=59, group = "Sessions - London")
+londonColorUser = input.color(color.teal, "London Session Color", group = "Sessions - London")
+nyColorUser = input.color(color.orange, "NY Session Color", group = "Sessions - NY")
+
+londonColor = color.new(londonColorUser, 80)https://github.com/awab24/trading-view/tree/main
+
+
+// Session B (New York)
+showNY = input.bool(true, "Show NY", group = "Sessions - NY")
+nyStartHour = input.int(12, "Start Hour", minval=0, maxval=23, group = "Sessions - NY")
+nyStartMin = input.int(0, "Start Minute", minval=0, maxval=59, group = "Sessions - NY")
+nyEndHour = input.int(16, "End Hour", minval=0, maxval=23, group = "Sessions - NY")
+nyEndMin = input.int(0, "End Minute", minval=0, maxval=59, group = "Sessions - NY")
+nyColor = color.new(nyColorUser, 80)
+
+// Opening Range
+showOpening = input.bool(true, "Show Opening Range", group = "Opening Range")
+openHour = input.int(14, "Opening Hour", minval=0, maxval=23, group = "Opening Range")
+openMin = input.int(32, "Opening Minute", minval=0, maxval=59, group = "Opening Range")
+openingDateTime = input.time(timestamp("2025-07-27 14:32:00"), "Opening Range 30s Candle Time (UTC)", group = "Opening Range")
+pointStep = input.float(1.0, "Line Spacing (Points)", minval = 0.0001, group = "Opening Range")
+
+
+var box londonBox = na
+var box nyBox = na
+var box openBox = na
+var label londonLabel = na
+var label nyLabel = na
+var label openLabel = na
+var float openHigh = na
+var float openLow = na
+var line[] openLines = array.new_line()
+
+
+isNewDay = ta.change(time("D"))
+
+// Convert hour & minute to timestamp for today
+getSessionTime(hour, min) =>
+    timestamp("GMT+0", year, month, dayofmonth, hour + utcOffset, min)
+
+londonStart = getSessionTime(londonStartHour, londonStartMin)
+londonEnd = getSessionTime(londonEndHour, londonEndMin)
+nyStart = getSessionTime(nyStartHour, nyStartMin)
+nyEnd = getSessionTime(nyEndHour, nyEndMin)
+openingTime = getSessionTime(openHour, openMin)
+
+
+var float londonHigh = na
+var float londonLow = na
+var float nyHigh = na
+var float nyLow = na
+
+if isNewDay
+    londonHigh := na
+    londonLow := na
+    nyHigh := na
+    nyLow := na
+    box.delete(londonBox)
+    box.delete(nyBox)
+    label.delete(londonLabel)
+    label.delete(nyLabel)
+    box.delete(openBox)
+    label.delete(openLabel)
+    // Clean up opening range lines
+    for i = 0 to array.size(openLines) - 1
+        line.delete(array.get(openLines, i))
+    array.clear(openLines)
+
+// London Session
+inLondon = time >= londonStart and time <= londonEnd
+if showLondon and inLondon
+    londonHigh := na(londonHigh) ? high : math.max(londonHigh, high)
+    londonLow := na(londonLow) ? low : math.min(londonLow, low)
+    if time == londonEnd
+        londonBox := box.new(left = bar_index - int((londonEnd - londonStart)/time_close),
+                             right = bar_index,
+                             top = londonHigh,
+                             bottom = londonLow,
+                             bgcolor = londonColor,
+                             border_color = londonColorUser)
+        londonLabel := label.new(x = bar_index - int((londonEnd - londonStart) / time_close),
+                                 y = londonHigh,
+                                 text = str.tostring(londonHigh - londonLow, format.mintick),
+                                 style = label.style_label_left,
+                                 textcolor = londonColorUser,
+                                 size = size.tiny,
+                                 textalign = text.align_left)
+
+// NY Session
+inNY = time >= nyStart and time <= nyEnd
+if showNY and inNY
+    nyHigh := na(nyHigh) ? high : math.max(nyHigh, high)
+    nyLow := na(nyLow) ? low : math.min(nyLow, low)
+    if time == nyEnd
+        nyBox := box.new(left = bar_index - int((nyEnd - nyStart)/time_close),
+                         right = bar_index,
+                         top = nyHigh,
+                         bottom = nyLow,
+                         bgcolor = nyColor,
+                         border_color = nyColorUser)
+        nyLabel := label.new(x = bar_index - int((nyEnd - nyStart) / time_close),  // left of the box
+                             y = nyHigh,
+                             text = str.tostring(nyHigh - nyLow, format.mintick),
+                             style = label.style_label_left,
+                             textcolor = nyColorUser,
+                             size = size.tiny,
+                             textalign = text.align_left)
+
+// Opening Range Color Input
+_userOpenColor = input.color(color.fuchsia, "Opening Range Color", group = "Opening Range")
+openColor = color.new(_userOpenColor, 85)  // Apply transparency
+
+// === Opening Range Candle Detection ===
+isTargetOpenBar = (time >= openingTime and time < openingTime + 60 * 1000)
+
+
+if isTargetOpenBar and showOpening
+    openHigh := high
+    openLow := low
+
+    // Draw opening range box
+    openBox := box.new(left = bar_index, right = bar_index + 1, top = openHigh, bottom = openLow,
+                       bgcolor = openColor, border_color = na)
+    openLabel := label.new(x = bar_index, y = openHigh, text = str.tostring(openHigh - openLow, format.mintick),
+                           style = label.style_label_left, textcolor = _userOpenColor, size = size.tiny)
+
+    // Draw lines every X points from the range
+    stepCount = 50  // Number of lines in each direction
+    for i = 1 to stepCount
+        upLevel = openHigh + pointStep * i
+        dnLevel = openLow - pointStep * i
+        array.push(openLines, line.new(x1 = bar_index, y1 = upLevel, x2 = bar_index + 500, y2 = upLevel,
+                                       color = _userOpenColor, style = line.style_dotted, width = 1,
+                                       xloc = xloc.bar_index))
+        array.push(openLines, line.new(x1 = bar_index, y1 = dnLevel, x2 = bar_index + 500, y2 = dnLevel,
+                                       color = _userOpenColor, style = line.style_dotted, width = 1,
+                                       xloc = xloc.bar_index))
+
+// Clean up lines at day change
+if isNewDay
+    for i = 0 to array.size(openLines) - 1
+        line.delete(array.get(openLines, i))
+    array.clear(openLines)
+
+plot(na, title="London Session Dummy", color=londonColorUser, display=display.none)
+plot(na, title="NY Session Dummy", color=nyColorUser, display=display.none)
+plot(na, title="Opening Range Dummy", color=_userOpenColor, display=display.none)
