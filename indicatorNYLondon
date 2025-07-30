@@ -14,7 +14,8 @@ londonEndMin = input.int(0, "End Minute", minval=0, maxval=59, group = "Sessions
 londonColorUser = input.color(color.teal, "London Session Color", group = "Sessions - London")
 nyColorUser = input.color(color.orange, "NY Session Color", group = "Sessions - NY")
 
-londonColor = color.new(londonColorUser, 80)https://github.com/awab24/trading-view/tree/main
+londonColor = color.new(londonColorUser, 80)
+barTime = 30 * 1000  // 30s candle
 
 
 // Session B (New York)
@@ -74,6 +75,7 @@ if isNewDay
     box.delete(openBox)
     label.delete(openLabel)
     // Clean up opening range lines
+if array.size(openLines) > 0
     for i = 0 to array.size(openLines) - 1
         line.delete(array.get(openLines, i))
     array.clear(openLines)
@@ -81,6 +83,7 @@ if isNewDay
 // London Session
 inLondon = time >= londonStart and time <= londonEnd
 if showLondon and inLondon
+    label.new(bar_index, high, "London", style=label.style_label_up, color=color.green)
     londonHigh := na(londonHigh) ? high : math.max(londonHigh, high)
     londonLow := na(londonLow) ? low : math.min(londonLow, low)
     if time == londonEnd
