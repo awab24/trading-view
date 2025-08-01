@@ -1,0 +1,257 @@
+//@version=5
+indicator("Step 3: Multi-Timeframe Trading Sessions [Enhanced]", overlay=true, max_lines_count=500, max_boxes_count=100, max_labels_count=100)
+
+// === Global Settings ===
+utcOffset = input.int(0, "UTC Offset (e.g. +3 = 3, -5 = -5)", minval=-12, maxval=12, group="Global Settings")
+
+// === Input for daily opening range ===
+openHour = input.int(14, "Opening Hour (UTC)", minval=0, maxval=23, group="Opening Range")
+openMin = input.int(32, "Opening Minute (UTC)", minval=0, maxval=59, group="Opening Range")
+pointStep = input.float(1.0, "Line Spacing (Points)", minval=0.0001, group="Opening Range")
+lineCount = input.int(10, "Number of Lines (each direction)", minval=1, maxval=25, group="Opening Range")
+openingRangeColor = input.color(color.blue, "Opening Range Color", group="Opening Range")
+
+// === London Session Inputs ===
+showLondon = input.bool(true, "Show London Session", group="London Session")
+londonStartHour = input.int(8, "London Start Hour (UTC)", minval=0, maxval=23, group="London Session")
+londonStartMin = input.int(0, "London Start Minute (UTC)", minval=0, maxval=59, group="London Session")
+londonEndHour = input.int(16, "London End Hour (UTC)", minval=0, maxval=23, group="London Session")
+londonEndMin = input.int(0, "London End Minute (UTC)", minval=0, maxval=59, group="London Session")
+londonColorUser = input.color(color.blue, "London Session Color", group="London Session")
+londonColor = color.new(londonColorUser, 85)
+
+// === New York Session Inputs ===
+showNY = input.bool(true, "Show New York Session", group="New York Session")
+nyStartHour = input.int(13, "NY Start Hour (UTC)", minval=0, maxval=23, group="New York Session")
+nyStartMin = input.int(30, "NY Start Minute (UTC)", minval=0, maxval=59, group="New York Session")
+nyEndHour = input.int(20, "NY End Hour (UTC)", minval=0, maxval=23, group="New York Session")
+nyEndMin = input.int(0, "NY End Minute (UTC)", minval=0, maxval=59, group="New York Session")
+nyColorUser = input.color(color.orange, "NY Session Color", group="New York Session")
+nyColor = color.new(nyColorUser, 85)
+
+// Convert time with UTC offset
+getSessionTime(hour, min) =>
+    timestamp(year, month, dayofmonth, hour, min) - utcOffset * 60 * 60 * 1000
+
+// Opening range time window
+openingTime = getSessionTime(openHour, openMin)
+londonStart = getSessionTime(londonStartHour, londonStartMin)
+londonEnd = getSessionTime(londonEndHour, londonEndMin)
+nyStart = getSessionTime(nyStartHour, nyStartMin)
+nyEnd = getSessionTime(nyEndHour, nyEndMin)
+
+isTargetCandle = (time >= openingTime and time < openingTime + 60000)
+inLondonSession = time >= londonStart and time <= londonEnd
+inNYSession = time >= nyStart and time <= nyEnd
+
+var float targetHigh = na
+var float targetLow = na
+var line[] gridLines = array.new_line()
+var label highLabel = na
+var label lowLabel = na
+var box openBox = na
+var line orHighLine = na
+var line orLowLine = na
+var bool showHighMarker = false
+var bool showLowMarker = false
+
+// Session variables
+var float londonHigh = na
+var float londonLow = na
+var int londonStartBar = na
+var box londonBox = na
+var label londonLabel = na
+
+var float nyHigh = na
+var float nyLow = na
+var int nyStartBar = na
+var box nyBox = na
+var label nyLabel = na
+
+var table rangeTable = na
+var float londonRangeSize = na
+var float nyRangeSize = na
+
+// Reset on new day
+if ta.change(time("D"))
+    targetHigh := na
+    targetLow := na
+    londonHigh := na
+    londonLow := na
+    londonStartBar := na
+    nyHigh := na
+    nyLow := na
+    nyStartBar := na
+    showHighMarker := false
+    showLowMarker := false
+
+    if array.size(gridLines) > 0
+        for i = 0 to array.size(gridLines) - 1
+            line.delete(array.get(gridLines, i))
+        array.clear(gridLines)
+
+    label.delete(highLabel)
+    label.delete(lowLabel)
+    box.delete(openBox)
+    line.delete(orHighLine)
+    line.delete(orLowLine)
+    label.delete(londonLabel)
+    label.delete(nyLabel)
+    box.delete(londonBox)
+    box.delete(nyBox)
+    table.delete(rangeTable)
+    londonRangeSize := na
+    nyRangeSize := na
+
+// Draw opening range only once
+if isTargetCandle and na(targetHigh)
+    targetHigh := high
+    targetLow := low
+    showHighMarker := high == targetHigh
+    showLowMarker := low == targetLow
+
+    label.delete(highLabel)
+    label.delete(lowLabel)
+    box.delete(openBox)
+    line.delete(orHighLine)
+    line.delete(orLowLine)
+
+    // Clear previous grid lines
+    if array.size(gridLines) > 0
+        for i = 0 to array.size(gridLines) - 1
+            line.delete(array.get(gridLines, i))
+        array.clear(gridLines)
+
+    // More prominent high/low markers
+    highLabel := label.new(
+         x=bar_index, 
+         y=targetHigh, 
+         text="ORH: " + str.tostring(targetHigh, format.mintick), 
+         style=label.style_label_left, 
+         color=color.red, 
+         textcolor=color.white, 
+         size=size.normal)
+    label.new(
+         x=bar_index,
+         y=targetHigh + syminfo.mintick * 10,  // a bit above the high
+         text="Opening Range Candle\n" + str.format_time(time, "HH:mm:ss", "UTC"),
+         style=label.style_label_up,
+         color=color.blue,
+         textcolor=color.white,
+         size=size.small)
+
+    lowLabel := label.new(
+         x=bar_index, 
+         y=targetLow, 
+         text="ORL: " + str.tostring(targetLow, format.mintick), 
+         style=label.style_label_left, 
+         color=color.green, 
+         textcolor=color.white, 
+         size=size.normal)
+
+    // More visible box
+    openBox := box.new(
+         left=bar_index, 
+         right=bar_index + 1, 
+         top=targetHigh, 
+         bottom=targetLow,
+         bgcolor=color.new(openingRangeColor, 90), 
+         border_color=openingRangeColor,
+         border_width=2)
+
+    // Persistent horizontal lines
+    orHighLine := line.new(x1=bar_index, y1=targetHigh,x2=bar_index, y2=targetHigh,color=color.red, width=2, style=line.style_solid,extend=extend.right)
+
+    orLowLine := line.new(x1=bar_index, y1=targetLow,x2=bar_index, y2=targetLow,color=color.green, width=2, style=line.style_solid,extend=extend.right)
+
+
+    // Lines above and below the opening range
+    for i = 1 to lineCount
+        upLevel = targetHigh + pointStep * i
+        dnLevel = targetLow - pointStep * i
+        
+        upLine = line.new(
+             x1=bar_index, 
+             y1=upLevel,
+             x2=bar_index + 500, 
+             y2=upLevel,
+             color=openingRangeColor, 
+             style=line.style_dotted, 
+             width=1)
+        
+        dnLine = line.new(
+             x1=bar_index, 
+             y1=dnLevel,
+             x2=bar_index + 500, 
+             y2=dnLevel,
+             color=openingRangeColor, 
+             style=line.style_dotted, 
+             width=1)
+        
+        array.push(gridLines, upLine)
+        array.push(gridLines, dnLine)
+
+// Candle markers (must be in global scope)
+plotchar(showHighMarker, "OR High", "▲", location.abovebar, color.green, size=size.tiny)
+plotchar(showLowMarker, "OR Low", "▼", location.belowbar, color.red, size=size.tiny)
+
+// London Session
+if showLondon and inLondonSession
+    if na(londonHigh)
+        londonHigh := high
+        londonLow := low
+        londonStartBar := bar_index
+    else
+        londonHigh := math.max(londonHigh, high)
+        londonLow := math.min(londonLow, low)
+
+    box.delete(londonBox)
+    londonBox := box.new(left=londonStartBar, right=bar_index, top=londonHigh, bottom=londonLow,bgcolor=londonColor, border_color=na)
+
+    label.delete(londonLabel)
+    rangeSize = (londonHigh - londonLow) / syminfo.pointvalue
+    londonLabel := label.new(x=londonStartBar, y=londonHigh,text=str.tostring(rangeSize, "#.#") + " pts", style=label.style_label_down,color=londonColorUser, textcolor=color.white, size=size.small)
+    londonRangeSize := rangeSize
+
+// New York Session
+if showNY and inNYSession
+    if na(nyHigh)
+        nyHigh := high
+        nyLow := low
+        nyStartBar := bar_index
+    else
+        nyHigh := math.max(nyHigh, high)
+        nyLow := math.min(nyLow, low)
+
+    box.delete(nyBox)
+    nyBox := box.new(left=nyStartBar, right=bar_index, top=nyHigh, bottom=nyLow,bgcolor=nyColor, border_color=na)
+
+    label.delete(nyLabel)
+    rangeSize = (nyHigh - nyLow) / syminfo.pointvalue
+    nyLabel := label.new(x=nyStartBar, y=nyHigh,text=str.tostring(rangeSize, "#.#") + " pts", style=label.style_label_down,color=nyColorUser, textcolor=color.white, size=size.small)
+    nyRangeSize := rangeSize
+
+// Table of ranges
+if not na(londonRangeSize) or not na(nyRangeSize)
+    table.delete(rangeTable)
+    rangeTable := table.new(position.top_left, 2, 3, bgcolor=color.new(color.black, 80), border_width=1)
+
+    if not na(londonRangeSize)
+        table.cell(rangeTable, 0, 0, "London:", text_color=londonColorUser, text_size=size.small)
+        table.cell(rangeTable, 1, 0, str.tostring(londonRangeSize, "#.#") + " pts", text_color=londonColorUser, text_size=size.small)
+
+    if not na(nyRangeSize)
+        table.cell(rangeTable, 0, 1, "NY:", text_color=nyColorUser, text_size=size.small)
+        table.cell(rangeTable, 1, 1, str.tostring(nyRangeSize, "#.#") + " pts", text_color=nyColorUser, text_size=size.small)
+
+// Debug table
+if barstate.islast
+    debugTable = table.new(position.bottom_right, 2, 5, bgcolor=color.new(color.black, 80))
+    table.cell(debugTable, 0, 0, "Current Time:", text_color=color.white)
+    table.cell(debugTable, 1, 0, str.tostring(time), text_color=color.white)
+    table.cell(debugTable, 0, 1, "Opening Time:", text_color=color.blue)
+    table.cell(debugTable, 1, 1, str.tostring(openingTime), text_color=color.blue)
+    table.cell(debugTable, 0, 2, "OR High:", text_color=color.red)
+    table.cell(debugTable, 1, 2, str.tostring(targetHigh, format.mintick), text_color=color.red)
+    table.cell(debugTable, 0, 3, "OR Low:", text_color=color.green)
+    table.cell(debugTable, 1, 3, str.tostring(targetLow, format.mintick), text_color=color.green)
